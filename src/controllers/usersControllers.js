@@ -99,14 +99,13 @@ const signIn = async (req, res) => {
     }
 
     // create user token
-    const token = await jwt.sign({ userId: user._id }, TOKEN_KEY, {
+    const token = await jwt.sign({email:user.email, userId: user._id }, TOKEN_KEY, {
       expiresIn: TOKEN_EXPIRY,
     });
-    user.token = token;
     return res.status(200).json({
       message: "Sign in successful",
       user: user,
-      token: token,
+      token
     });
   } catch (error) {
     res.status(404).json({
@@ -115,4 +114,31 @@ const signIn = async (req, res) => {
   }
 };
 
-module.exports = { signUp, signIn };
+// Providing / limiting access to resources
+// Middleware to verify JWT token
+const verifyToken = async (req, res,next) => {
+  try {
+    const token =
+      req.body.token || req.query.token || req.headers["x-access-token"];
+    // check for provided token
+    if (!token) {
+      return res
+        .status(403)
+        .json({ message: "An authentication token is required" });
+    }
+
+    // verify token
+    const decodedToken = await jwt.verify(token, TOKEN_KEY);
+    req.currentUser = decodedToken;
+
+    //   proceed with request
+    res.status(200).json({
+      message: `You are in the private territory of ${req.currentUser.email}`,
+    });
+  } catch (error) {
+    return res.status(401).json({ message: "Invalid token provided" });
+  }
+  return next();
+};
+
+module.exports = { signUp, signIn, verifyToken };
