@@ -1,7 +1,9 @@
 const Users = require("../models/userModel");
+const Otp = require("../models/otpModel");
 const bcrypt = require("bcrypt");
-const { TOKEN_KEY, TOKEN_EXPIRY } = process.env;
+const { TOKEN_KEY, TOKEN_EXPIRY, EMAIL_ADDRESS, EMAIL_PASS } = process.env;
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
 
 // Sign up
 const signUp = async (req, res) => {
@@ -99,13 +101,17 @@ const signIn = async (req, res) => {
     }
 
     // create user token
-    const token = await jwt.sign({email:user.email, userId: user._id }, TOKEN_KEY, {
-      expiresIn: TOKEN_EXPIRY,
-    });
+    const token = await jwt.sign(
+      { email: user.email, userId: user._id },
+      TOKEN_KEY,
+      {
+        expiresIn: TOKEN_EXPIRY,
+      }
+    );
     return res.status(200).json({
       message: "Sign in successful",
       user: user,
-      token
+      token,
     });
   } catch (error) {
     res.status(404).json({
@@ -116,7 +122,7 @@ const signIn = async (req, res) => {
 
 // Providing / limiting access to resources
 // Middleware to verify JWT token
-const verifyToken = async (req, res,next) => {
+const verifyToken = async (req, res, next) => {
   try {
     const token =
       req.body.token || req.query.token || req.headers["x-access-token"];
@@ -141,4 +147,117 @@ const verifyToken = async (req, res,next) => {
   return next();
 };
 
-module.exports = { signUp, signIn, verifyToken };
+// OTP generation and verification system
+const generateOTP = async (req, res) => {
+  try {
+    const { name, email, subject, message, duration = 1 } = req.body;
+
+    if (!(email && subject && message)) {
+      return res
+        .status(403)
+        .json({ message: "Provide values for email, subject, and message" });
+    }
+
+    // Clear old records (assuming you have defined and imported the Otp model)
+    await Otp.deleteOne({ email });
+    console.log({ email });
+
+    // Generate OTP
+    let otp = `${Math.floor(1000 + Math.random() * 9000)}`;
+    console.log(otp);
+
+    // Create a transporter for Outlook (assuming you have valid email credentials)
+    let transporter = nodemailer.createTransport({
+      // outlook
+      // host: "smtp-mail.outlook.com",
+
+      // ethereal
+      host: "smtp.ethereal.email",
+      port: 587, // Use the appropriate port for Outlook SMTP
+      secure: false, // Use SSL/TLS, set to true if required
+      auth: {
+        user: EMAIL_ADDRESS, // Use your email address
+        pass: EMAIL_PASS, // Use your email password
+      },
+    });
+
+    // Send OTP email
+    const mailOptions = {
+      from: EMAIL_ADDRESS, // Use your email address as the sender
+      to: email, // Use the recipient's email address
+      subject,
+      html: `<div>
+     <section style="width: 780px; margin: auto; background: #F1F5FD;">
+         <div style="background-color: #365CCE; display: flex; alignItems: center; justifyContent: center; flexDirection: column; padding: 20px;">
+             <div>
+                 <div></div>
+                 <img style="width: 100px; border-radius: 100%; border: 1px solid #fff;" src="https://i.ibb.co/2hd5R60/Photo-Room-20230619-161249.png" alt="" />
+                 <div></div>
+             </div>
+             <div>
+                 <h1 style="font-size: 20px; color: #fff; margin-top: 10px;">THANKS FOR SIGNING UP <span style="color: #EA3263; font-weight: bold;">ROKTHO DEI</span></h1>
+
+                 <h1 style="font-size: 30px; color: #fff; text-align: center; font-weight: bold;">Verify your E-mail Address</h1>
+             </div>
+         </div>
+         <main style="padding: 30px;">
+             <h2 style="margin-top: 5px;">Hello ${name}</h2>
+             <p style="margin-top: 5px; margin-bottom: 10px;">
+    Please use the following One Time Password (OTP) - <span style="font-size: 28px; margin-top: 10px; font-weight: bold;">${otp}</span>
+</p>
+             <p style="margin-top: 20px;">This passcode will only be valid for the next <span>2 minutes</span>. If the passcode does not work, you can use this login verification link:</p>
+             <p>Thank you, <br /> Roktho Dei Team</p>
+         </main>
+         <footer>
+             <div style="background: #E3E6E9; display: flex; align-items: center; justify-items: center; flex-direction: column; text-align: center; padding: 20px;">
+                 <div>
+                     <h1>Get in touch</h1>
+                     <a href="tel:+91-848-883-8308" alt="+91-848-883-8308">+91-848-883-8308</a>
+                     <a href="mailto:sales@infynno.com" alt="sales@infynno.com">sales@infynno.com</a>
+                 </div>
+                 <div>
+                     <a href="#_">
+                         <FaBeer />
+                     </a>
+                     <a href="#_">
+                         <FaBeer />
+                     </a>
+                     <a href="#_">
+                         <FaBeer />
+                     </a>
+                 </div>
+             </div>
+             <div style="background: #365CCE; padding: 20px; text-align: center; font-weight: bold; color: #fff;">
+                 <p>© All Rights Reserved Roktho Dei (Shuvo Deb).</p>
+             </div>
+         </footer>
+     </section>
+ </div>`,
+    };
+
+    // Send the email
+    await transporter.sendMail(mailOptions);
+
+    // Save OTP record (assuming you have defined and imported the Otp model)
+    const hashedOTP = bcrypt.hashSync(otp, 10);
+    const newOTP = new Otp({
+      email,
+      otp: hashedOTP,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 3600000 * +duration,
+    });
+    await newOTP.save();
+
+    // Respond with a success message
+    return res.status(200).json({ 
+      message: "OTP sent successfully",
+      newOtp:newOTP 
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+module.exports = { signUp, signIn, verifyToken, generateOTP };
+
