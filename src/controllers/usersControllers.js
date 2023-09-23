@@ -147,6 +147,44 @@ const verifyToken = async (req, res, next) => {
   return next();
 };
 
+// verify otp
+const verifyOTP = async (req, res) => {
+  try {
+    let { email, otp } = req.body;
+    if (email && otp) {
+      // Match OTP record in the database
+      const matchOTPRecord = await Otp.findOne({ email });
+      if (!matchOTPRecord) {
+        return res.status(401).json({
+          message: "No OTP records found",
+        });
+      }
+
+      // Checking for expired code
+      const { expiresAt } = matchOTPRecord;
+      if (expiresAt < Date.now()) {
+        await Otp.deleteOne({ email });
+        return res
+          .status(401)
+          .json({ message: "Code has expired. Request a new one" });
+      }
+
+      // Not expired value, verify value
+      const hashedOtp = matchOTPRecord.otp;
+
+      // Verify OTP
+      const validOTP = await bcrypt.compare(otp, hashedOtp);
+      return res.status(200).json({ valid: validOTP });
+    } else {
+      return res.status(400).json({
+        message: "Provide values for Email and OTP",
+      });
+    }
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // OTP generation and verification system
 const generateOTP = async (req, res) => {
   try {
@@ -158,7 +196,7 @@ const generateOTP = async (req, res) => {
         .json({ message: "Provide values for email, subject, and message" });
     }
 
-    // Clear old records (assuming you have defined and imported the Otp model)
+    // Clear old records
     await Otp.deleteOne({ email });
     console.log({ email });
 
@@ -166,7 +204,6 @@ const generateOTP = async (req, res) => {
     let otp = `${Math.floor(1000 + Math.random() * 9000)}`;
     console.log(otp);
 
-    // Create a transporter for Outlook (assuming you have valid email credentials)
     let transporter = nodemailer.createTransport({
       // outlook
       // host: "smtp-mail.outlook.com",
@@ -179,6 +216,22 @@ const generateOTP = async (req, res) => {
         user: EMAIL_ADDRESS, // Use your email address
         pass: EMAIL_PASS, // Use your email password
       },
+    });
+
+    // Save OTP record (assuming you have defined and imported the Otp model)
+    const hashedOTP = bcrypt.hashSync(otp, 10);
+    const newOTP = new Otp({
+      email,
+      otp: hashedOTP,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 3600000 * +duration,
+    });
+    await newOTP.save();
+
+    // Respond with a success message
+    res.status(200).json({
+      message: "OTP sent successfully",
+      newOtp: newOTP,
     });
 
     // Send OTP email
@@ -205,7 +258,7 @@ const generateOTP = async (req, res) => {
              <p style="margin-top: 5px; margin-bottom: 10px;">
     Please use the following One Time Password (OTP) - <span style="font-size: 28px; margin-top: 10px; font-weight: bold;">${otp}</span>
 </p>
-             <p style="margin-top: 20px;">This passcode will only be valid for the next <span>2 minutes</span>. If the passcode does not work, you can use this login verification link:</p>
+             <p style="margin-top: 20px;">This passcode will only be valid for the next <span>${newOTP.expiresAt}</span>. If the passcode does not work, you can use this login verification link:</p>
              <p>Thank you, <br /> Roktho Dei Team</p>
          </main>
          <footer>
@@ -237,27 +290,10 @@ const generateOTP = async (req, res) => {
 
     // Send the email
     await transporter.sendMail(mailOptions);
-
-    // Save OTP record (assuming you have defined and imported the Otp model)
-    const hashedOTP = bcrypt.hashSync(otp, 10);
-    const newOTP = new Otp({
-      email,
-      otp: hashedOTP,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 3600000 * +duration,
-    });
-    await newOTP.save();
-
-    // Respond with a success message
-    return res.status(200).json({ 
-      message: "OTP sent successfully",
-      newOtp:newOTP 
-    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
 
-module.exports = { signUp, signIn, verifyToken, generateOTP };
-
+module.exports = { signUp, signIn, verifyToken, verifyOTP, generateOTP };
