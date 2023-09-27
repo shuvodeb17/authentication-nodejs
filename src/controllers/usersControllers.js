@@ -185,7 +185,7 @@ const verifyOTP = async (req, res) => {
   }
 };
 
-// OTP generation and verification system
+// Number OTP generation and verification system
 const generateOTP = async (req, res) => {
   try {
     const { name, email, subject, message, duration = 1 } = req.body;
@@ -296,4 +296,93 @@ const generateOTP = async (req, res) => {
   }
 };
 
-module.exports = { signUp, signIn, verifyToken, verifyOTP, generateOTP };
+// email verify
+const emailVerify = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!(email && otp)) {
+      return res
+        .status(400)
+        .json({ message: "Empty OTP details are not allowed" });
+    }
+
+    // Ensure OTP request exists
+    const matchedOTPRecord = await Otp.findOne({ email });
+
+    if (!matchedOTPRecord) {
+      return res.status(401).json({ message: "No OTP records found" });
+    }
+
+    const { expiresAt } = matchedOTPRecord;
+
+    // Check for expired code
+    if (expiresAt < Date.now()) {
+      await Otp.deleteOne({ email });
+      return res
+        .status(401)
+        .json({ message: "Code has expired. Request for a new code" });
+    }
+
+    // Not expired value, verify value
+    const hashedOtp = matchedOTPRecord.otp;
+
+    // Verify OTP
+    const validOTP = await bcrypt.compare(otp, hashedOtp);
+
+    if (!validOTP) {
+      return res
+        .status(401)
+        .json({ message: "Invalid code passed. Check your inbox" });
+    }
+
+    if (matchedOTPRecord.verified === false) {
+      return res.status(401).json({ message: "Email has not verified" });
+    }
+
+    // If OTP is valid, delete the OTP record
+    await Otp.deleteOne({ email });
+
+    // Return a success response
+    return res
+      .status(200)
+      .json({ message: "OTP verified successfully", verified: true });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+// password reset with OTP
+const passwordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.json({ message: "Email is required" });
+    }
+
+    // existing user
+    const existingUser = await Users.findOne({ email });
+    if (!existingUser) {
+      res.json({ message: "There no account for email address" });
+    }
+
+    if (!existingUser.verified) {
+      res.json({
+        message: "Email has not been verified yet. Check your inbox",
+      });
+    }
+  } catch (error) {
+    res.status(501).json({ message: "Internal server error" });
+  }
+};
+
+module.exports = {
+  signUp,
+  signIn,
+  verifyToken,
+  verifyOTP,
+  generateOTP,
+  emailVerify,
+};

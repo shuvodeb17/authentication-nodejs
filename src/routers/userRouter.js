@@ -5,6 +5,7 @@ const {
   verifyToken,
   verifyOTP,
   generateOTP,
+  emailVerify
 } = require("../controllers/UsersControllers");
 const usersRouter = express.Router();
 
@@ -22,5 +23,9 @@ usersRouter.post("/verify-otp", verifyOTP);
 
 // POST: http://localhost:5000/users/send-otp
 usersRouter.post("/send-otp", generateOTP);
+
+
+usersRouter.post("/email-verify", emailVerify);
+
 
 module.exports = usersRouter;
